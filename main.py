@@ -1,62 +1,30 @@
-
+# Import the necessary libraries
 import pandas as pd
 import boto3
-import s3fs
 from io import StringIO
 
-#define global variable
-queue_url = 'https://sqs.us-east-1.amazonaws.com/897708493501/etl'
+# Create an S3 client
+s3 = boto3.client('s3')
 
-#create clients
-sqs = boto3.client('sqs')
-s3 = boto3.resource('s3')
+# Set the source and destination bucket names
+src_bucket_name = 'bucketsnowflakes47'
+dst_bucket_name = 'snowoutput'
 
-if __name__ == "__main__":
-    #Collecting queue message one by one until queue is empty
-    while True:
-        response = sqs.receive_message(
-            QueueUrl=queue_url,
-            AttributeNames=[
-                'SentTimestamp'
-            ],
-            MaxNumberOfMessages=1,
-            MessageAttributeNames=[
-                'All'
-            ],
-            VisibilityTimeout=0,
-            WaitTimeSeconds=0
-        )
-        
-        #condition to check if queue is empty   
-        try:
-            receipt_handle = response['Messages'][0]['ReceiptHandle']
-            bucket = response['Messages'][0]['Body']
-            key = response['Messages'][0]['MessageAttributes']['key']['StringValue']
-              
+# Set the source and destination keys (file names)
+src_key = 'csv/data.csv'
+dst_key = 'csv/data2.csv'
 
-            #read dataframe
-            path = 's3://bucketsnowflakes47/csv/'
-            df = pd.read_csv(path, header=0, sep=",")
-            
-            #process the dataframe
-            shuffled_df = df.sample(frac=1)
-            
-            #write s3/data
-            folder = 'processed'
-            data_key = folder + '/data.csv'
-            csv_buffer = StringIO()
-            training_df.to_csv(csv_buffer)
-            s3.Object(bucket, data_key).put(Body=csv_buffer.getvalue())
-            
+# Use the S3 client to download the object
+response = s3.get_object(Bucket=src_bucket_name, Key=src_key)
+data = response['Body'].read()
 
-            # Delete received message from queue
-            sqs.delete_message(
-                QueueUrl=queue_url,
-                ReceiptHandle=receipt_handle
-                )
+# Convert the downloaded bytes to a DataFrame
+df = pd.read_csv(StringIO(data.decode()))
 
-                
-        #manage case queue is empty
-        except KeyError:
-            print('no messages anymore')
-            break
+# Add a new column to the DataFrame
+df['new_column'] = 'default_value'
+
+# Use the S3 client to upload the object
+csv_buffer = StringIO()
+df.to_csv(csv_buffer, index=False)
+s3.put_object(Bucket=dst_bucket_name, Key=dst_key, Body=csv_buffer.getvalue())
